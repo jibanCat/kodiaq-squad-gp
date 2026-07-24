@@ -1,0 +1,3 @@
+# Keep every shipped file byte-identical on checkout, so the MD5 manifest
+# holds on platforms where git would otherwise rewrite line endings.
+* -text

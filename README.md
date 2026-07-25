@@ -137,9 +137,9 @@ k = 0.075 s/km at z = 3.6.
 In Ho et al. (2026) we use the multi-fidelity emulator only up to k = 0.065 s/km,
 which is about 7.8 h/Mpc at z = 3.6. Beyond that scale the residual
 resolution-convergence error of the simulations exceeds the KODIAQ-SQUAD
-statistical uncertainty (the diagonal of its data covariance), so we do not use
-the emulator there. The resolution-convergence correction is tabulated in
-`res_corr/resolution_correction.h5`.
+statistical uncertainty (the square root of the diagonal of its data
+covariance), so we do not use the emulator there. The resolution-convergence
+correction is tabulated in `res_corr/resolution_correction.h5`.
 
 An emulator built from the uncut vectors loads without any warning but is a
 different emulator: at z = 3.6, over k = 0.001 to 0.04 s/km, its high-fidelity
@@ -159,8 +159,8 @@ emulator is stable across the update, not that two independent emulators agree.
 
 We predict the fiducial high-fidelity P1D from both over the eBOSS k range
 (k = 0.001 to 0.0195 s/km, the range the measurement covers) at all 13
-redshifts. Away from the largest mode the two agree to better than 1.5 per cent
-at every redshift (worst 1.5 per cent at z = 4.4), and to about one per cent or
+redshifts. Away from the largest mode the two agree to about 1.5 per cent at
+every redshift (worst 1.5 per cent at z = 4.4), and to about one per cent or
 better in the median. At the largest mode, the lowest-k bin at k = 0.001 s/km,
 the difference reaches 2 per cent at z = 2.8; that mode carries a cosmic
 variance of order 2 per cent (Fernandez et al. 2024, JCAP 07 (2024) 029,

@@ -85,7 +85,14 @@ def main(argv=None) -> int:
                          f"(default {DEFAULT_TOL})")
     args = ap.parse_args(argv)
 
-    if vb._import_gpwrap() is None:
+    try:
+        have_lyaemu = vb._import_gpwrap() is not None
+    except ModuleNotFoundError as exc:
+        print(f"lyaemu import failed because a dependency is missing ({exc}); "
+              f"install the packages in requirements.txt (matplotlib in "
+              f"particular).", file=sys.stderr)
+        return 2
+    if not have_lyaemu:
         print("lyaemu is not importable; put an InferenceLyaData clone on "
               "PYTHONPATH to run this check.", file=sys.stderr)
         return 2

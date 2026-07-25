@@ -472,6 +472,17 @@ def test_cross_validation_skips_cleanly_without_mafern():
     assert rc == 2
 
 
+def test_cross_validation_exits_2_on_broken_dependency(monkeypatch):
+    """A broken environment (lyaemu present but a dependency missing) must exit
+    2, not crash with a raw traceback."""
+    import validate_cross_emulator as cx
+
+    def boom():
+        raise ModuleNotFoundError("No module named 'matplotlib'", name="matplotlib")
+    monkeypatch.setattr(cx.vb, "_import_gpwrap", boom)
+    assert cx.main(["--basedir", str(REPO), "--mafern", "/nonexistent"]) == 2
+
+
 def test_cross_validation_reports_disagreement(monkeypatch):
     import validate_cross_emulator as cx
     monkeypatch.setattr(cx.vb, "_import_gpwrap", lambda: object())

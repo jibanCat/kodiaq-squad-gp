@@ -23,9 +23,11 @@ Usage:
     python verify_basedir.py --no-predictions # the subset that does not need lyaemu
     python verify_basedir.py --basedir DIR    # verify a directory elsewhere
 
-The exit status is 0 when nothing failed and 1 otherwise; skipped checks do not
-fail the run unless --strict is given. Usage errors and maintainer-mode
-refusals (contradictory flags, or an --emit-reference guard) exit 2.
+The exit status is 0 when nothing failed and 1 otherwise (a failing check, a
+missing or malformed reference.json, or an --emit-reference refused because the
+basedir does not pass its own checks). Skipped checks do not fail the run unless
+--strict is given. Usage errors (contradictory flags, or --emit-reference with
+predictions requested but lyaemu unavailable) exit 2.
 """
 
 from __future__ import annotations
@@ -377,8 +379,13 @@ def check_grid(basedir) -> list[Check]:
         if not path.exists():
             checks.append(Check(f"{label} k-binning", "FAIL", f"{rel} is missing"))
             continue
-        with h5py.File(path, "r") as f:
-            kfmpc = f["kfmpc"][()]
+        try:
+            with h5py.File(path, "r") as f:
+                kfmpc = f["kfmpc"][()]
+        except (KeyError, OSError) as exc:
+            checks.append(Check(f"{label} k-binning", "FAIL",
+                                f"{rel} is malformed: {type(exc).__name__}: {exc}"))
+            continue
         nk = int(kfmpc.shape[0])
         if nk == UNCUT_NK:
             checks.append(Check(

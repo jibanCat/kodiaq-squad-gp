@@ -354,6 +354,91 @@ def test_corrupt_reference_json_is_reported_cleanly(tmp_path):
     assert vb.main(["--basedir", str(base), "--no-predictions"]) == 1
 
 
+def test_non_dict_reference_json_is_reported_cleanly(tmp_path):
+    base = synthetic_basedir(tmp_path)
+    (base / vb.REFERENCE_FILE).write_text('"a string, not an object"')
+    assert vb.main(["--basedir", str(base), "--no-predictions"]) == 1
+
+
+def _patch_lyaemu_import(monkeypatch, missing_name):
+    """Make `from lyaemu.gp_wrap import ...` raise ModuleNotFoundError naming
+    `missing_name`, without needing a real lyaemu on the path."""
+    import builtins
+    import sys
+    real = builtins.__import__
+    for m in [m for m in list(sys.modules) if m.startswith("lyaemu")]:
+        monkeypatch.delitem(sys.modules, m, raising=False)
+
+    def fake(name, *a, **k):
+        if name.split(".")[0] == "lyaemu":
+            raise ModuleNotFoundError(f"No module named {missing_name!r}", name=missing_name)
+        return real(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", fake)
+
+
+def test_import_gpwrap_returns_none_when_lyaemu_itself_missing(monkeypatch):
+    _patch_lyaemu_import(monkeypatch, "lyaemu")
+    assert vb._import_gpwrap() is None
+
+
+def test_import_gpwrap_reraises_a_broken_dependency(monkeypatch):
+    """A missing dependency of lyaemu (e.g. matplotlib) is a broken environment
+    and must not be misreported as a missing clone."""
+    _patch_lyaemu_import(monkeypatch, "matplotlib")
+    with pytest.raises(ModuleNotFoundError):
+        vb._import_gpwrap()
+
+
+def test_predictions_fail_cleanly_on_broken_dependency(tmp_path, monkeypatch):
+    base = synthetic_basedir(tmp_path)
+    ref = vb.build_reference(base, predictions=False)
+    ref["predictions"] = {"theta": [], "kf": [], "lf": {}, "hf": {}}
+
+    def boom():
+        raise ModuleNotFoundError("No module named 'matplotlib'", name="matplotlib")
+    monkeypatch.setattr(vb, "_import_gpwrap", boom)
+    checks = vb.check_predictions(base, ref)
+    assert failed(checks) and "matplotlib" in details(checks)
+
+
+def test_malformed_flux_file_fails_without_crashing(tmp_path, monkeypatch):
+    base = synthetic_basedir(tmp_path)
+    pin_to(monkeypatch, base)
+    with h5py.File(base / vb.LF_FLUX, "r+") as f:
+        del f["flux_vectors"]
+        f["flux_vectors"] = np.zeros(5)          # 1-D, not (n_s, n_flat)
+    bad = failed(vb.check_grid(base))
+    assert any("malformed" in c.detail for c in bad)
+
+
+def test_malformed_trained_gp_json_fails_without_crashing(tmp_path, monkeypatch):
+    base = synthetic_basedir(tmp_path)
+    pin_to(monkeypatch, base)
+    (base / "trained_mf" / "zbin3.6.json").write_text('{"no_Y_key": true}')
+    bad = failed(vb.check_trained_mf(base))
+    assert any("malformed" in c.detail for c in bad)
+
+
+def test_prediction_pass_and_fail_paths(tmp_path, monkeypatch):
+    """Exercise the numeric body of check_predictions (previously untested)."""
+    base = synthetic_basedir(tmp_path)
+    kf = [0.001, 0.01, 0.04]
+    ref = {"predictions": {"theta": [0.0], "kf": kf, "rtol": 1e-6,
+                           "lf": {"3.6": [1.0, 2.0, 3.0]},
+                           "hf": {"3.6": [1.0, 2.0, 3.0]}}}
+    monkeypatch.setattr(vb, "_import_gpwrap", lambda: object())
+
+    def exact(basedir, theta, kf, fidelity):
+        return np.array([3.6]), np.array([[1.0, 2.0, 3.0]])
+    monkeypatch.setattr(vb, "_predict", exact)
+    assert failed(vb.check_predictions(base, ref)) == []          # PASS path
+
+    def off(basedir, theta, kf, fidelity):
+        return np.array([3.6]), np.array([[1.0, 2.0, 3.3]])       # 10% off
+    monkeypatch.setattr(vb, "_predict", off)
+    assert failed(vb.check_predictions(base, ref))                # FAIL path
+
+
 def test_format_report_shows_the_key_numerics():
     text = vb.format_report(REPO, vb.run_all(REPO, predictions=False))
     for token in ("172", "600", "13"):
@@ -391,12 +476,14 @@ def test_cross_validation_reports_disagreement(monkeypatch):
     import validate_cross_emulator as cx
     monkeypatch.setattr(cx.vb, "_import_gpwrap", lambda: object())
     monkeypatch.setattr(cx.Path, "is_file", lambda self: True)
+    monkeypatch.setattr(cx, "eboss_kf", lambda base: np.linspace(0.001, 0.019, 12))
 
     def fake_predict(basedir, theta, kf, fidelity):
         zout = np.array([4.2, 3.6, 2.6])
         base = np.ones((3, len(kf)))
         if "mafern" in str(basedir):
-            base = base * 1.10          # a flat ten-percent offset
+            base = base * 1.10          # a flat ten-percent offset, all modes
         return zout, base
     monkeypatch.setattr(cx.vb, "_predict", fake_predict)
+    # the gap is flat, so even away from the largest mode it exceeds tol -> fail
     assert cx.main(["--basedir", "this", "--mafern", "mafern"]) == 1

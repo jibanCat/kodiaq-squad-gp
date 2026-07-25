@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Verify that this directory is the KODIAQ-SQUAD GP emulator basedir.
 
-We run three groups of checks. The file checks confirm that every shipped file
-is present and unmodified. The grid checks confirm the k-binning, and are the
+We run several groups of checks: the file manifest, the k-binning, the trained
+GPs, the resolution-correction table, and a fiducial P1D. The grid check is the
 reason this script exists: an emulator assembled from the uncut flux vectors
-loads without complaint and predicts a P1D that differs at the percent level,
+loads without complaint and predicts a P1D that differs at the per-cent level,
 so we test the binning directly rather than trusting the file name. The
-prediction checks reproduce a stored P1D from the trained GPs, and we skip them
+prediction check reproduces a stored P1D from the trained GPs, and we skip it
 when lyaemu is not importable.
 
-The values we check against are hard-coded below rather than read from
-reference.json, because reference.json is itself part of what we are checking.
-A reader who regenerates it on a damaged basedir would otherwise obtain a file
-that certifies the damage.
+The file, grid, and shape checks compare against constants hard-coded below
+rather than read from reference.json, because reference.json is itself part of
+what we are checking: a reader who regenerates it on a damaged basedir would
+otherwise obtain a file that certifies the damage. The fiducial-P1D check does
+read its expected values from reference.json; that is safe because the trained
+GPs that produce the P1D are themselves pinned by the hard-coded manifest
+digest, so a tampered basedir fails the file check first.
 
 Usage:
 
@@ -20,8 +23,9 @@ Usage:
     python verify_basedir.py --no-predictions # the subset that does not need lyaemu
     python verify_basedir.py --basedir DIR    # verify a directory elsewhere
 
-The exit status is 0 when nothing failed and 1 otherwise. Skipped checks do
-not fail the run unless --strict is given.
+The exit status is 0 when nothing failed and 1 otherwise; skipped checks do not
+fail the run unless --strict is given. Usage errors and maintainer-mode
+refusals (contradictory flags, or an --emit-reference guard) exit 2.
 """
 
 from __future__ import annotations
@@ -147,11 +151,18 @@ def _lf_gp_files(basedir) -> list[Path]:
 
 
 def _import_gpwrap():
-    """Return lyaemu's GPWrap, or None when lyaemu is not importable."""
+    """Return lyaemu's GPWrap, or None when lyaemu itself is not importable.
+
+    We only treat a missing `lyaemu` as "not available". A different missing
+    dependency (for example matplotlib, which lyaemu imports at module load)
+    is a broken environment, not a missing clone, so we re-raise it rather than
+    silently reporting it as "lyaemu not on PYTHONPATH"."""
     try:
         from lyaemu.gp_wrap import GPWrap
-    except Exception:
-        return None
+    except ModuleNotFoundError as exc:
+        if (exc.name or "").split(".")[0] == "lyaemu":
+            return None
+        raise
     return GPWrap
 
 
@@ -161,7 +172,8 @@ def _import_gpwrap():
 
 
 def observe(basedir) -> dict:
-    """Read the grid, the design and the trained-GP shapes from disk."""
+    """Read the grid, the design, the trained-GP shapes, and the
+    resolution-correction shape from disk."""
     basedir = Path(basedir)
     with h5py.File(basedir / LF_FLUX, "r") as f:
         nk = int(f["kfmpc"].shape[0])
@@ -228,7 +240,34 @@ def build_reference(basedir, *, predictions: bool = True) -> dict:
     ref["files"] = manifest_of(basedir)
     if predictions:
         ref["predictions"] = build_predictions(basedir)
+        ref["provenance"] = _provenance()
     return ref
+
+
+def _provenance() -> dict:
+    """Record what produced the prediction values, so a reader can tell whether
+    their environment matches. This is informational; the checks do not gate on
+    it. lyaemu is identified by a digest of its .py files rather than a git SHA,
+    so the value is the same across identical forks."""
+    import platform
+    versions = {}
+    for pkg in ("numpy", "scipy", "h5py", "GPy", "emukit"):
+        try:
+            versions[pkg] = __import__(pkg).__version__
+        except Exception:
+            versions[pkg] = None
+    lyaemu_code_md5 = None
+    try:
+        import lyaemu
+        pkgdir = Path(lyaemu.__file__).resolve().parent
+        h = hashlib.md5()
+        for f in sorted(pkgdir.glob("*.py")):
+            h.update(f.read_bytes())
+        lyaemu_code_md5 = h.hexdigest()
+    except Exception:
+        pass
+    return {"python": platform.python_version(),
+            "lyaemu_code_md5": lyaemu_code_md5, **versions}
 
 
 def build_predictions(basedir) -> dict:
@@ -251,7 +290,8 @@ FIDUCIAL_THETA = [-0.009, 1.09, 0.983, 1.46e-09, 4.0, 2.765, 1.74, 0.688,
 
 
 def _reference_kf() -> np.ndarray:
-    """The 48-point logarithmic grid we fit on, k in s/km."""
+    """The 48-point logarithmic grid, k in s/km, at which we evaluate the
+    reference P1D. This is a query grid, not a grid the GPs were trained on."""
     return np.logspace(np.log10(0.001), np.log10(0.04), 48)
 
 
@@ -365,10 +405,15 @@ def check_grid(basedir) -> list[Check]:
 
     lf = basedir / LF_FLUX
     if lf.exists():
-        with h5py.File(lf, "r") as f:
-            n_z = int(f["zout"].shape[0])
-            n_s, n_flat = f["flux_vectors"].shape
-            nk = int(f["kfmpc"].shape[0])
+        try:
+            with h5py.File(lf, "r") as f:
+                n_z = int(f["zout"].shape[0])
+                n_s, n_flat = f["flux_vectors"].shape
+                nk = int(f["kfmpc"].shape[0])
+        except (KeyError, ValueError, OSError) as exc:
+            checks.append(Check("flux vector layout", "FAIL",
+                                f"{LF_FLUX} is malformed: {type(exc).__name__}: {exc}"))
+            return checks
         if n_z == N_ZBINS:
             checks.append(Check("redshift bins", "PASS", f"{n_z} bins"))
         else:
@@ -419,7 +464,13 @@ def check_trained_mf(basedir, ref=None) -> list[Check]:
         checks.append(Check("low-fidelity GPs", "FAIL",
                             f"{len(lf_gp)} zbin<z>.json files, expected {N_ZBINS}"))
 
-    widths = {int(np.asarray(json.loads(p.read_text())["Y"]).shape[1]) for p in lf_gp}
+    try:
+        widths = {int(np.asarray(json.loads(p.read_text())["Y"]).shape[1]) for p in lf_gp}
+    except (KeyError, IndexError, ValueError, json.JSONDecodeError) as exc:
+        checks.append(Check("trained GP width", "FAIL",
+                            f"a trained_mf/zbin<z>.json is malformed: "
+                            f"{type(exc).__name__}: {exc}"))
+        return checks
     if widths == {EXPECTED_NK}:
         checks.append(Check("trained GP width", "PASS",
                             f"Y has {EXPECTED_NK} columns in every bin"))
@@ -456,7 +507,14 @@ def check_predictions(basedir, ref) -> list[Check]:
     stored = (ref or {}).get("predictions")
     if not stored:
         return [Check("fiducial P1D", "SKIP", "no predictions in reference.json")]
-    if _import_gpwrap() is None:
+    try:
+        available = _import_gpwrap() is not None
+    except ModuleNotFoundError as exc:
+        return [Check("fiducial P1D", "FAIL",
+                      f"lyaemu could not be imported because a dependency is "
+                      f"missing ({exc}). Install the packages in "
+                      f"requirements.txt (matplotlib in particular).")]
+    if not available:
         return [Check("fiducial P1D", "SKIP",
                       "lyaemu is not importable; put an InferenceLyaData clone "
                       "on PYTHONPATH to run this check")]
@@ -511,10 +569,11 @@ def run_all(basedir, *, ref=None, predictions: bool = True) -> list[Check]:
 # ---------------------------------------------------------------------------
 
 
-def format_report(basedir, checks) -> str:
+def format_report(basedir, checks, ref=None) -> str:
     """Summarise the basedir. Every number here is read from the files
     themselves, never from reference.json, so the summary cannot contradict
-    the checks."""
+    the checks. The provenance line, if shown, is the exception: it echoes the
+    environment recorded in reference.json when the predictions were emitted."""
     obs = observe(basedir)
     grid, design, trained = obs["grid"], obs["design"], obs["trained_mf"]
     lines = [f"KODIAQ-SQUAD GP basedir: {Path(basedir).resolve()}", ""]
@@ -545,6 +604,15 @@ def format_report(basedir, checks) -> str:
     lines.append(f"  X shape                {trained['x_shape']}")
     lines.append(f"  Y shape                {trained['y_shape']}")
     lines.append(f"  resolution correction  {obs.get('res_corr', {}).get('shape')}")
+
+    prov = (ref or {}).get("provenance")
+    if prov:
+        lines += ["", "Reference emitted with"]
+        lines.append(f"  lyaemu code md5        {prov.get('lyaemu_code_md5')}")
+        lines.append(f"  python                 {prov.get('python')}")
+        lines.append("  packages               " + ", ".join(
+            f"{k} {prov[k]}" for k in ("numpy", "scipy", "h5py", "GPy", "emukit")
+            if prov.get(k)))
 
     lines += ["", "Checks"]
     for c in checks:
@@ -583,6 +651,20 @@ def main(argv=None) -> int:
                   "would disable the strongest check for every later run. "
                   "Pass --force if that is really what you want.", file=sys.stderr)
             return 2
+        if not args.no_predictions:
+            try:
+                have_lyaemu = _import_gpwrap() is not None
+            except ModuleNotFoundError as exc:
+                print(f"cannot emit predictions: lyaemu import failed ({exc}). "
+                      f"Install requirements.txt (matplotlib in particular), or "
+                      f"pass --no-predictions --force.", file=sys.stderr)
+                return 2
+            if not have_lyaemu:
+                print("cannot emit predictions: lyaemu is not importable. Put an "
+                      "InferenceLyaData clone on PYTHONPATH, or pass "
+                      "--no-predictions --force to emit without them.",
+                      file=sys.stderr)
+                return 2
         blocking = [c for c in run_all(basedir, predictions=False) if c.status == "FAIL"]
         if blocking and not args.force:
             print("refusing to regenerate reference.json: the basedir does not "
@@ -605,9 +687,12 @@ def main(argv=None) -> int:
     except json.JSONDecodeError as exc:
         print(f"{REFERENCE_FILE} in {basedir} is not valid JSON: {exc}", file=sys.stderr)
         return 1
+    if not isinstance(ref, dict):
+        print(f"{REFERENCE_FILE} in {basedir} is not a JSON object.", file=sys.stderr)
+        return 1
 
     checks = run_all(basedir, ref=ref, predictions=not args.no_predictions)
-    print(format_report(basedir, checks))
+    print(format_report(basedir, checks, ref))
     n_fail = sum(1 for c in checks if c.status == "FAIL")
     n_skip = sum(1 for c in checks if c.status == "SKIP")
     if args.strict and n_skip:

@@ -13,21 +13,25 @@ we must not substitute it: see [Why the cut k range](#why-the-cut-k-range).
 ```bash
 git clone https://github.com/jibanCat/kodiaq-squad-gp
 git clone https://github.com/jibanCat/InferenceLyaData
+git -C InferenceLyaData checkout 253f9ed   # a known-good lyaemu commit (its code md5 is recorded in reference.json)
 
-export PYTHONPATH=$PWD/InferenceLyaData     # its lyaemu/ directory is the package
+export PYTHONPATH=$PWD/InferenceLyaData     # the directory that contains lyaemu/, not lyaemu/ itself
 pip install -r kodiaq-squad-gp/requirements.txt
 
 cd kodiaq-squad-gp
 python verify_basedir.py --strict
 ```
 
-`InferenceLyaData` supplies the `lyaemu` package, which is not installable with
-pip, hence the `PYTHONPATH` entry. We recommend `--strict`, which turns a
-skipped check into a failure: without `lyaemu` on the path the strongest check
-quietly does not run.
+Run the `export` from the directory that holds both clones, before `cd`, and
+point it at the `InferenceLyaData` root (the directory containing `lyaemu/`),
+not at `lyaemu/` itself. `InferenceLyaData` supplies the `lyaemu` package, which
+is not installable with pip, hence the `PYTHONPATH` entry. We recommend
+`--strict`, which turns a skipped check into a failure: without `lyaemu` on the
+path the strongest check quietly does not run.
 
-The analysis code that consumes this emulator points its own `GP_BASEDIR` at
-the clone root. Nothing in this repository reads that variable.
+The analysis code that consumes this emulator, released with Ho et al. (2026),
+points its own `GP_BASEDIR` at the clone root. Nothing in this repository reads
+that variable.
 
 ## Verifying a copy
 
@@ -109,11 +113,15 @@ restarts with no fixed seed and is not reproducible.
 
 We stripped the basedir from the internal run directory
 `kodiaq_2_2_4_6-48-48`, dropping the leave-one-out diagnostics, the
-temperature-emulator files, the resolution-correction tables and the
-alternative HDF5 variants that the forecast never reads. The two
-`emulator_params.json` files carry stale `basedir` fields pointing at the
-original TACC scratch directories. We preserve them so that the files stay
-byte-identical to upstream.
+temperature-emulator files, the seed-convergence file, the auxiliary `kims_`
+subdirectories, and the alternative HDF5 variants that the forecast never reads.
+The two `emulator_params.json` files are carried over verbatim from the previous
+emulator version, so their `kf`, `maxk`, and `basedir` fields describe that
+version rather than the shipped flux vectors; only `param_names`,
+`param_limits`, and `sample_params` bear on this basedir, and the k-binning
+comes from the HDF5 files. We preserve them unedited so that the files stay
+byte-identical to upstream, including the stale TACC scratch paths in the
+`basedir` fields.
 
 ## Why the cut k range
 
@@ -127,9 +135,10 @@ z = 2.2 to 4.6, and is about 120 at z = 3.6. The 9.006 h/Mpc cut is therefore
 k = 0.075 s/km at z = 3.6.
 
 In Ho et al. (2026) we use the multi-fidelity emulator only up to k = 0.065 s/km,
-which is about 7.8 h/Mpc at z = 3.6. Beyond that scale the resolution
-convergence of the simulations exceeds the KODIAQ-SQUAD covariance, so we do not
-use the emulator there. The convergence correction is tabulated in
+which is about 7.8 h/Mpc at z = 3.6. Beyond that scale the residual
+resolution-convergence error of the simulations exceeds the KODIAQ-SQUAD
+statistical uncertainty (the diagonal of its data covariance), so we do not use
+the emulator there. The resolution-convergence correction is tabulated in
 `res_corr/resolution_correction.h5`.
 
 An emulator built from the uncut vectors loads without any warning but is a
@@ -143,29 +152,31 @@ never at that directory.
 ## Consistency with the previous emulator version
 
 We compare against [`mafern/InferenceLyaData`](https://github.com/mafern/InferenceLyaData),
-the previous version of this emulator, trained on an earlier PRIYA suite of 48
-low-fidelity and 3 high-fidelity simulations and binned differently: 102 k-bins
-in h/Mpc, queried on 35 bins in s/km reaching k = 0.0195 s/km. This checks that
-the emulator is stable across the update, not that two independent emulators
-agree. Predicting the fiducial high-fidelity P1D from both on a common grid over
-the previous version's range, the two agree to better than one per cent in the
-median at every redshift, and to 1.3 per cent at worst:
+the previous version of this emulator, trained on an earlier PRIYA suite of 60
+low-fidelity and 3 high-fidelity simulations and binned differently (102 k-bins
+in h/Mpc, queried on the 35-bin eBOSS grid in s/km). This checks that the
+emulator is stable across the update, not that two independent emulators agree.
+
+We predict the fiducial high-fidelity P1D from both over the eBOSS k range
+(k = 0.001 to 0.0195 s/km, the range the measurement covers) at all 13
+redshifts. Away from the largest mode the two agree to better than 1.5 per cent
+at every redshift (worst 1.5 per cent at z = 4.4), and to about one per cent or
+better in the median. At the largest mode, the lowest-k bin at k = 0.001 s/km,
+the difference reaches 2 per cent at z = 2.8; that mode carries a cosmic
+variance of order 2 per cent (Fernandez et al. 2024, JCAP 07 (2024) 029,
+[arXiv:2309.03943](https://arxiv.org/abs/2309.03943)), so a difference of that
+size there is expected and is not an emulator disagreement.
+
+For the three redshifts the paper reports, away from the largest mode:
 
 | z | median | worst |
 |---|---|---|
-| 2.6 | 0.05 % | 0.4 % |
-| 3.6 | 0.55 % | 0.7 % |
-| 4.2 | 0.62 % | 1.3 % |
+| 2.6 | 0.05 % | 0.2 % |
+| 3.6 | 0.60 % | 0.7 % |
+| 4.2 | 0.85 % | 1.3 % |
 
-The deviation is not uniform in k. At z = 2.6 it stays below 0.1 per cent except
-at the lowest k-bin, while at z = 4.2 it runs from about +1 per cent at the
-lowest k, through near-zero in the middle of the range, to the 1.3 per cent
-worst case at the highest k. The largest deviations therefore sit at the highest
-k and the highest redshift, and the mid-range agrees to better than half a per
-cent.
-
-`validate_cross_emulator.py` reproduces this table given a clone of that
-repository.
+`validate_cross_emulator.py` reproduces the full-redshift comparison given a
+clone of that repository, and gates on the agreement away from the largest mode.
 
 ## Reference values
 
@@ -195,4 +206,4 @@ together with the PRIYA simulation suite on which the emulator is trained:
 
 > Bird, Fernandez, Ho, Qezlou, Monadi, Ni, Chen, Croft & Di Matteo,
 > *PRIYA: a new suite of Lyman-alpha forest simulations for cosmology*,
-> JCAP (2023).
+> JCAP 10 (2023) 037, [arXiv:2306.05471](https://arxiv.org/abs/2306.05471).

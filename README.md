@@ -10,9 +10,10 @@ we must not substitute it: see [Why the cut k range](#why-the-cut-k-range).
 
 ## Quickstart
 
-Use **Python 3.11 or 3.12**. The pinned versions do not resolve outside that
-window: `emukit` needs 3.10 or newer, and neither `numpy 1.26.4` nor `GPy
-1.13.2` publishes wheels for 3.13 and later. We verified this basedir on 3.11.
+Use **Python 3.11 or 3.12**. We verified this basedir on both, and the fiducial
+P1D reproduces bit-for-bit across the two. Do not use 3.13 or later: neither
+`numpy 1.26.4` nor `GPy 1.13.2` publishes wheels for it, so the pins cannot be
+installed at all.
 
 ```bash
 git clone https://github.com/jibanCat/kodiaq-squad-gp
@@ -165,12 +166,16 @@ differs is that it was trained at a lower k_max: 102 k-bins reaching
 5.34 h/Mpc, against 172 reaching 9.006 h/Mpc here, and it is queried on the
 35-bin eBOSS grid in s/km.
 
-This comparison therefore probes the **retraining and the rebinning**, not
+Its 102 bins are an exact prefix of our 172 — same spacing, same values, simply
+stopping earlier — so the difference between the two is a lower k_max, not a
+regridding.
+
+This comparison therefore probes the **refit at the wider k_max**, not
 suite-to-suite stability, and it is not a check that two independent emulators
-agree. What it does establish is that refitting the multi-fidelity GP on the
-wider k range did not disturb the predictions over the range the earlier
-emulator already covered — worth confirming, because the AR1 fit uses ten
-optimiser restarts with no fixed seed and so is not reproducible.
+agree. What it does establish is that extending the training range did not
+disturb the predictions over the range the earlier emulator already covered —
+worth confirming, because the AR1 fit uses ten optimiser restarts with no fixed
+seed and so is not reproducible.
 
 We predict the fiducial high-fidelity P1D from both over the eBOSS k range
 (k = 0.001 to 0.0195 s/km, the range the measurement covers) at all 13
@@ -202,11 +207,13 @@ python validate_cross_emulator.py --mafern mafern-InferenceLyaData/Emulator_File
 ```
 
 Clone it under a name of its own. The quickstart above already used the
-directory name `InferenceLyaData` for `jibanCat/InferenceLyaData`, and that
-repository's `emulator_params.json` is byte-identical to this one's, so pointing
-`--mafern` at the wrong clone cannot be detected from that file. The script
-therefore checks the k-binning instead, and refuses a directory that does not
-carry the earlier emulator's 102 bins.
+directory name `InferenceLyaData` for `jibanCat/InferenceLyaData`, and every
+candidate directory carries a byte-identical `emulator_params.json`, so that
+file cannot tell them apart. The script checks the k-binning instead and refuses
+anything that is not the earlier emulator's 102 bins — which catches the two
+mistakes that matter, pointing `--mafern` at this basedir (172 bins, so the
+comparison would be against itself) or at `Emulator_Files_KS` (329, the uncut
+variant).
 
 ## Reference values
 

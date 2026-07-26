@@ -4,11 +4,12 @@
 We compare the fiducial high-fidelity P1D from this basedir with the one from
 mafern/InferenceLyaData, the earlier PRIYA-trained emulator. That emulator is
 fitted to the same PRIYA suite and the same 60 low-fidelity + 3 high-fidelity
-design as this one, but to a flux measurement truncated at a lower k_max and
-binned on a different k grid (102 bins in h/Mpc rather than 172). The
-comparison therefore probes the independent refit and the rebinning, not
-suite-to-suite stability. Agreement at the per-cent level over the eBOSS k
-range confirms that the emulator is stable across the update.
+design as this one, but to a flux measurement truncated at a lower k_max: its
+102 k-bins are an exact prefix of our 172, same spacing and same values, simply
+stopping at 5.34 rather than 9.006 h/Mpc. The comparison therefore probes the
+independent refit at the wider k_max, not suite-to-suite stability. Agreement at
+the per-cent level over the eBOSS k range confirms that the emulator is stable
+across the update.
 
 We compare over the eBOSS k range (k = 0.001 to 0.0195 s/km) that the
 measurement covers, read from emulator_params.json, and over all shared

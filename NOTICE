@@ -1,0 +1,42 @@
+Copyright (c) 2026 Ming-Feng Ho, Mahdi Qezlou, Simeon Bird, Yanhui Yang,
+Camille Avestruz, M. A. Fernandez, Vid Iršič
+
+This work is licensed under the Creative Commons Attribution 4.0 International
+License (CC BY 4.0). The full legal text is in LICENSE, and at
+
+    https://creativecommons.org/licenses/by/4.0/legalcode
+
+When you use this emulator, please cite
+
+    Ho, Qezlou, Bird, Yang, Avestruz, Fernandez & Iršič,
+    "Small-scale Lyman alpha forest cosmology with PRIYA: Constraints from
+    XQ100 and KODIAQ-SQUAD one-dimensional flux power spectra",
+    JCAP 07 (2026) 094, doi:10.1088/1475-7516/2026/07/094,
+    arXiv:2509.18271,
+
+together with the PRIYA simulation suite on which the emulator is trained,
+
+    Bird, Fernandez, Ho, Qezlou, Monadi, Ni, Chen, Croft & Di Matteo,
+    "PRIYA: a new suite of Lyman-alpha forest simulations for cosmology",
+    JCAP 10 (2023) 037, arXiv:2306.05471.
+
+Attribution note on the redistributed files
+--------------------------------------------
+
+Four files here are byte-identical redistributions from the PRIYA emulator
+release:
+
+    emulator_params.json
+    hires/emulator_params.json
+    mf_emulator_flux_vectors_tau1000000.hdf5        (published as *_cut.hdf5)
+    hires/mf_emulator_flux_vectors_tau1000000.hdf5  (published as *_cut.hdf5)
+
+They originate with the PRIYA suite and its authors. The two res_corr/ files
+listed in the README provenance table are also byte-identical to files in
+jibanCat/InferenceLyaData, but they are our own derived resolution-convergence
+table rather than part of the PRIYA release, which is why they are not listed
+here.
+
+The CC BY 4.0 grant in LICENSE applies to this collection and to the trained
+GPs, the verifier and the documentation that we add. Please cite the PRIYA
+suite paper above when you use the redistributed files.

@@ -222,6 +222,19 @@ def test_missing_ar1_files_fail(tmp_path, monkeypatch):
     assert bad and "retrains" in details(bad)
 
 
+def test_trained_gps_of_uncut_width_are_rejected(tmp_path, monkeypatch):
+    """GPs fitted to the uncut vectors have Y = (600, 329). The grid check
+    catches the flux files, but the trained GPs are a separate artefact and
+    could be swapped on their own, so check_trained_mf must reject the width
+    independently."""
+    base = synthetic_basedir(tmp_path, nk=vb.UNCUT_NK)
+    pin_to(monkeypatch, base)
+    bad = failed(vb.check_trained_mf(base))
+    assert bad, "trained GPs of the uncut width must be rejected"
+    text = details(bad)
+    assert str(vb.UNCUT_NK) in text and str(vb.EXPECTED_NK) in text
+
+
 @needs_uncut
 def test_uncut_ar1_hyperparameters_are_rejected(tmp_path):
     """The extension-less zbin<z> files carry the AR1 hyperparameters. Swapping
@@ -238,16 +251,34 @@ def test_uncut_ar1_hyperparameters_are_rejected(tmp_path):
 
 
 @needs_uncut
-def test_emit_reference_refuses_to_bless_a_damaged_basedir(tmp_path):
+def test_emit_reference_refuses_to_bless_a_damaged_basedir(tmp_path, monkeypatch):
+    """The refusal branch itself, not the --no-predictions flag guard.
+
+    Passing --no-predictions would return 2 from the guard above without ever
+    running the checks, so this test would pass while the branch it is named
+    for stayed unexecuted. We stub lyaemu instead, so that main() reaches
+    run_all and refuses because the basedir is damaged."""
     base = tmp_path / "swapped"
     shutil.copytree(REPO, base, ignore=shutil.ignore_patterns(".git", "__pycache__"))
     for src in sorted(UNCUT.glob("trained_mf/zbin*")):
         if not src.name.endswith(".json"):
             shutil.copy2(src, base / "trained_mf" / src.name)
     before = (base / vb.REFERENCE_FILE).read_text()
-    rc = vb.main(["--basedir", str(base), "--emit-reference", "--no-predictions"])
-    assert rc != 0
+    monkeypatch.setattr(vb, "_import_gpwrap", lambda: object())
+    rc = vb.main(["--basedir", str(base), "--emit-reference"])
+    assert rc == 1, "must refuse with 1, not exit early from a flag guard"
     assert (base / vb.REFERENCE_FILE).read_text() == before, "reference was rewritten"
+
+
+def test_emit_reference_refusal_needs_no_uncut_data(tmp_path, monkeypatch):
+    """The same refusal branch, on a synthetic basedir, so it is covered even
+    without a local InferenceLyaData clone. A synthetic basedir never matches
+    the hard-coded manifest digest, so it is damaged by construction."""
+    base = synthetic_basedir(tmp_path)
+    monkeypatch.setattr(vb, "_import_gpwrap", lambda: object())
+    assert not (base / vb.REFERENCE_FILE).exists()
+    assert vb.main(["--basedir", str(base), "--emit-reference"]) == 1
+    assert not (base / vb.REFERENCE_FILE).exists(), "refused, yet wrote a reference"
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +476,56 @@ def test_format_report_shows_the_key_numerics():
         assert token in text
 
 
+def test_format_report_still_lists_checks_when_the_summary_cannot_be_built(tmp_path):
+    """The summary has to read every file, so it is what breaks on a damaged
+    basedir. The checks have already run by then and are the reason the reader
+    ran the script, so losing them to a traceback is the worst outcome."""
+    base = synthetic_basedir(tmp_path)
+    checks = vb.run_all(base, predictions=False)
+    (base / vb.LF_FLUX).unlink()                      # observe() now raises
+    text = vb.format_report(base, checks)
+    assert "Summary unavailable" in text
+    assert "Checks" in text
+    assert all(c.name in text for c in checks)
+
+
+def test_cli_reports_a_damaged_basedir_without_a_traceback(tmp_path):
+    """End to end: a basedir missing its flux file must exit 1 with a readable
+    report, not a raw h5py traceback and an empty stdout."""
+    base = synthetic_basedir(tmp_path)
+    (base / vb.REFERENCE_FILE).write_text(
+        json.dumps(vb.build_reference(base, predictions=False)))
+    (base / vb.LF_FLUX).unlink()
+    r = subprocess.run([sys.executable, str(REPO / "verify_basedir.py"),
+                        "--basedir", str(base), "--no-predictions"],
+                       capture_output=True, text=True)
+    assert r.returncode == 1
+    assert "Traceback" not in r.stderr, r.stderr
+    assert "Checks" in r.stdout and "Summary unavailable" in r.stdout
+
+
+def test_predictions_fail_cleanly_on_a_binary_incompatible_gpy(tmp_path, monkeypatch):
+    """GPy built against numpy 1.x raises ValueError under numpy 2.x, not an
+    ImportError. That must degrade to one FAIL, not discard every other check."""
+    base = synthetic_basedir(tmp_path)
+    ref = vb.build_reference(base, predictions=False)
+    ref["predictions"] = {"theta": [], "kf": [], "lf": {}, "hf": {}}
+
+    def boom():
+        raise ValueError("numpy.dtype size changed, may indicate binary incompatibility")
+    monkeypatch.setattr(vb, "_import_gpwrap", boom)
+    checks = vb.check_predictions(base, ref)
+    assert failed(checks) and "numpy" in details(checks)
+
+
+def test_run_all_survives_a_binary_incompatible_gpy(tmp_path, monkeypatch):
+    base = synthetic_basedir(tmp_path)
+    monkeypatch.setattr(vb, "_import_gpwrap",
+                        lambda: (_ for _ in ()).throw(ValueError("binary incompatibility")))
+    checks = vb.run_all(base, ref={"predictions": {"lf": {}, "hf": {}}}, predictions=True)
+    assert len(checks) > 1, "the offline checks must survive the import failure"
+
+
 def test_cli_exits_zero_on_the_shipped_basedir():
     r = subprocess.run([sys.executable, "verify_basedir.py", "--no-predictions"],
                        cwd=REPO, capture_output=True, text=True)
@@ -483,11 +564,16 @@ def test_cross_validation_exits_2_on_broken_dependency(monkeypatch):
     assert cx.main(["--basedir", str(REPO), "--mafern", "/nonexistent"]) == 2
 
 
+def _stub_cross(monkeypatch, cx):
+    """Let cx.main run without lyaemu or a mafern clone on disk."""
+    monkeypatch.setattr(cx.vb, "_import_gpwrap", lambda: object())
+    monkeypatch.setattr(cx, "mafern_problem", lambda m: None)
+    monkeypatch.setattr(cx, "eboss_kf", lambda base: np.linspace(0.001, 0.019, 12))
+
+
 def test_cross_validation_reports_disagreement(monkeypatch):
     import validate_cross_emulator as cx
-    monkeypatch.setattr(cx.vb, "_import_gpwrap", lambda: object())
-    monkeypatch.setattr(cx.Path, "is_file", lambda self: True)
-    monkeypatch.setattr(cx, "eboss_kf", lambda base: np.linspace(0.001, 0.019, 12))
+    _stub_cross(monkeypatch, cx)
 
     def fake_predict(basedir, theta, kf, fidelity):
         zout = np.array([4.2, 3.6, 2.6])
@@ -498,3 +584,40 @@ def test_cross_validation_reports_disagreement(monkeypatch):
     monkeypatch.setattr(cx.vb, "_predict", fake_predict)
     # the gap is flat, so even away from the largest mode it exceeds tol -> fail
     assert cx.main(["--basedir", "this", "--mafern", "mafern"]) == 1
+
+
+def test_cross_validation_excludes_the_largest_mode_from_the_gate(monkeypatch):
+    """The gate ignores the lowest-k bin, whose difference sits at the level of
+    that mode's cosmic variance. A disagreement confined to that one bin must
+    therefore pass, or the gate is measuring something we do not gate on."""
+    import validate_cross_emulator as cx
+    _stub_cross(monkeypatch, cx)
+
+    def fake_predict(basedir, theta, kf, fidelity):
+        zout = np.array([4.2, 3.6, 2.6])
+        out = np.ones((3, len(kf)))
+        if "mafern" in str(basedir):
+            out = out.copy()
+            out[:, 0] = 1.05        # 5% at the largest mode only, 0% elsewhere
+        return zout, out
+    monkeypatch.setattr(cx.vb, "_predict", fake_predict)
+    assert cx.main(["--basedir", "this", "--mafern", "mafern"]) == 0
+
+    kf, rows = cx.compare("this", "mafern", kf=np.linspace(0.001, 0.019, 12))
+    for _z, _med, _worst, _kw, mode0, away in rows:
+        assert mode0 > cx.DEFAULT_TOL > away, "the offset must land only on mode 0"
+
+
+def test_cross_validation_rejects_a_basedir_of_the_wrong_k_binning(tmp_path):
+    """emulator_params.json is byte-identical across this basedir and both
+    InferenceLyaData clones, so only the k-binning can tell them apart."""
+    import validate_cross_emulator as cx
+    base = synthetic_basedir(tmp_path)                 # 172 bins, not 102
+    problem = cx.mafern_problem(base)
+    assert problem and "102" in problem and str(vb.EXPECTED_NK) in problem
+
+
+def test_cross_validation_accepts_the_previous_k_binning(tmp_path):
+    import validate_cross_emulator as cx
+    base = synthetic_basedir(tmp_path, nk=cx.PREVIOUS_NK)
+    assert cx.mafern_problem(base) is None

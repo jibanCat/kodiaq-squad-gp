@@ -10,6 +10,10 @@ we must not substitute it: see [Why the cut k range](#why-the-cut-k-range).
 
 ## Quickstart
 
+Use **Python 3.11 or 3.12**. The pinned versions do not resolve outside that
+window: `emukit` needs 3.10 or newer, and neither `numpy 1.26.4` nor `GPy
+1.13.2` publishes wheels for 3.13 and later. We verified this basedir on 3.11.
+
 ```bash
 git clone https://github.com/jibanCat/kodiaq-squad-gp
 git clone https://github.com/jibanCat/InferenceLyaData
@@ -149,23 +153,37 @@ finds 329 bins. A basedir pointed at `InferenceLyaData/Emulator_Files_KS` is
 exactly this mistake, so we point `GP_BASEDIR` at a clone of this repository and
 never at that directory.
 
-## Consistency with the previous emulator version
+## Consistency with the earlier PRIYA-trained emulator
 
 We compare against [`mafern/InferenceLyaData`](https://github.com/mafern/InferenceLyaData),
-the previous version of this emulator, trained on an earlier PRIYA suite of 60
-low-fidelity and 3 high-fidelity simulations and binned differently (102 k-bins
-in h/Mpc, queried on the 35-bin eBOSS grid in s/km). This checks that the
-emulator is stable across the update, not that two independent emulators agree.
+the earlier PRIYA-trained emulator. It is fitted to the **same** underlying
+PRIYA suite and the same design as this one — its `emulator_params.json` is
+byte-identical to ours, its design matrix is identical (60 low-fidelity and 3
+high-fidelity simulations, each at 10 mean-flux rescalings), and over the k-bins
+the two releases share, their flux vectors agree to one part in 10^7. What
+differs is that it was trained at a lower k_max: 102 k-bins reaching
+5.34 h/Mpc, against 172 reaching 9.006 h/Mpc here, and it is queried on the
+35-bin eBOSS grid in s/km.
+
+This comparison therefore probes the **retraining and the rebinning**, not
+suite-to-suite stability, and it is not a check that two independent emulators
+agree. What it does establish is that refitting the multi-fidelity GP on the
+wider k range did not disturb the predictions over the range the earlier
+emulator already covered — worth confirming, because the AR1 fit uses ten
+optimiser restarts with no fixed seed and so is not reproducible.
 
 We predict the fiducial high-fidelity P1D from both over the eBOSS k range
 (k = 0.001 to 0.0195 s/km, the range the measurement covers) at all 13
 redshifts. Away from the largest mode the two agree to about 1.5 per cent at
 every redshift (worst 1.5 per cent at z = 4.4), and to about one per cent or
 better in the median. At the largest mode, the lowest-k bin at k = 0.001 s/km,
-the difference reaches 2 per cent at z = 2.8; that mode carries a cosmic
-variance of order 2 per cent (Fernandez et al. 2024, JCAP 07 (2024) 029,
-[arXiv:2309.03943](https://arxiv.org/abs/2309.03943)), so a difference of that
-size there is expected and is not an emulator disagreement.
+the difference reaches 2 per cent at z = 2.8. Since both emulators describe the
+same simulations, that difference is refit scatter rather than a difference in
+the underlying physics; we do not gate on it, because it sits at the level of
+that mode's cosmic variance, of order 2 per cent (Fernandez et al. 2024,
+JCAP 07 (2024) 029, [arXiv:2309.03943](https://arxiv.org/abs/2309.03943)),
+which is the floor below which a difference at that mode carries no physical
+meaning.
 
 For the three redshifts the paper reports, away from the largest mode:
 
@@ -176,7 +194,19 @@ For the three redshifts the paper reports, away from the largest mode:
 | 4.2 | 0.85 % | 1.3 % |
 
 `validate_cross_emulator.py` reproduces the full-redshift comparison given a
-clone of that repository, and gates on the agreement away from the largest mode.
+clone of that repository, and gates on the agreement away from the largest mode:
+
+```bash
+git clone https://github.com/mafern/InferenceLyaData mafern-InferenceLyaData
+python validate_cross_emulator.py --mafern mafern-InferenceLyaData/Emulator_Files
+```
+
+Clone it under a name of its own. The quickstart above already used the
+directory name `InferenceLyaData` for `jibanCat/InferenceLyaData`, and that
+repository's `emulator_params.json` is byte-identical to this one's, so pointing
+`--mafern` at the wrong clone cannot be detected from that file. The script
+therefore checks the k-binning instead, and refuses a directory that does not
+carry the earlier emulator's 102 bins.
 
 ## Reference values
 
@@ -190,6 +220,14 @@ only expected spread comes from the platform linear algebra.
 `test_verify_basedir.py` covers the checker itself, including a basedir
 assembled from the uncut files and one whose AR1 hyperparameters have been
 swapped.
+
+## Licence
+
+Everything here is released under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). `LICENSE` is the
+verbatim legal text; `NOTICE` carries the copyright line, the citation request
+and an attribution note on the four files redistributed from the PRIYA emulator
+release. Please read `NOTICE` as well as `LICENSE`.
 
 ## Citation
 

@@ -168,6 +168,25 @@ def _import_gpwrap():
     return GPWrap
 
 
+def _missing_dependency_detail(exc: ModuleNotFoundError) -> str:
+    """Name the module that is actually missing, rather than guessing.
+
+    lyaemu imports matplotlib and pandas at module load, and a reader who is
+    told the wrong name redoes the step that just failed."""
+    missing = exc.name or "a dependency"
+    return (f"lyaemu could not be imported because {missing} is missing. "
+            f"Install the packages in requirements.txt, which lists it.")
+
+
+def _broken_environment_detail(exc: Exception) -> str:
+    """A non-import failure while loading lyaemu means the installed packages
+    do not match each other. The usual case is GPy built against numpy 1.x
+    running under numpy 2.x, which raises ValueError, not ImportError."""
+    return (f"lyaemu could not be imported: {type(exc).__name__}: {exc}. "
+            f"The installed packages probably do not match requirements.txt; "
+            f"GPy 1.13.2 needs numpy==1.26.4 and fails under numpy 2.x.")
+
+
 # ---------------------------------------------------------------------------
 # Observing the basedir
 # ---------------------------------------------------------------------------
@@ -517,10 +536,9 @@ def check_predictions(basedir, ref) -> list[Check]:
     try:
         available = _import_gpwrap() is not None
     except ModuleNotFoundError as exc:
-        return [Check("fiducial P1D", "FAIL",
-                      f"lyaemu could not be imported because a dependency is "
-                      f"missing ({exc}). Install the packages in "
-                      f"requirements.txt (matplotlib in particular).")]
+        return [Check("fiducial P1D", "FAIL", _missing_dependency_detail(exc))]
+    except Exception as exc:
+        return [Check("fiducial P1D", "FAIL", _broken_environment_detail(exc))]
     if not available:
         return [Check("fiducial P1D", "SKIP",
                       "lyaemu is not importable; put an InferenceLyaData clone "
@@ -577,13 +595,40 @@ def run_all(basedir, *, ref=None, predictions: bool = True) -> list[Check]:
 
 
 def format_report(basedir, checks, ref=None) -> str:
-    """Summarise the basedir. Every number here is read from the files
-    themselves, never from reference.json, so the summary cannot contradict
-    the checks. The provenance line, if shown, is the exception: it echoes the
-    environment recorded in reference.json when the predictions were emitted."""
+    """Summarise the basedir, then list the checks.
+
+    The summary needs to read every file, so on a damaged basedir it is the
+    part that cannot be produced. The checks have already run by then, and
+    they are the reason the reader ran the script, so a failure to summarise
+    must not discard them: we note why the summary is missing and print the
+    checks regardless."""
+    lines = [f"KODIAQ-SQUAD GP basedir: {Path(basedir).resolve()}", ""]
+    try:
+        lines += _summary_lines(basedir, ref)
+    except Exception as exc:
+        lines += [f"Summary unavailable: {type(exc).__name__}: {exc}",
+                  "The checks below still ran; see them for what is wrong."]
+
+    lines += ["", "Checks"]
+    for c in checks:
+        lines.append(f"  [{c.status:4s}] {c.name:22s} {c.detail}")
+
+    n_fail = sum(1 for c in checks if c.status == "FAIL")
+    n_skip = sum(1 for c in checks if c.status == "SKIP")
+    summary = f"{len(checks) - n_fail - n_skip} passed, {n_fail} failed, {n_skip} skipped"
+    lines += ["", summary]
+    return "\n".join(lines)
+
+
+def _summary_lines(basedir, ref=None) -> list:
+    """The grid/design/trained-GP summary. Every number here is read from the
+    files themselves, never from reference.json, so the summary cannot
+    contradict the checks. The provenance line, if shown, is the exception: it
+    echoes the environment recorded in reference.json when the predictions were
+    emitted."""
     obs = observe(basedir)
     grid, design, trained = obs["grid"], obs["design"], obs["trained_mf"]
-    lines = [f"KODIAQ-SQUAD GP basedir: {Path(basedir).resolve()}", ""]
+    lines = []
 
     lines.append("Grid")
     lines.append(f"  k bins                 {grid['nk']}")
@@ -621,15 +666,7 @@ def format_report(basedir, checks, ref=None) -> str:
             f"{k} {prov[k]}" for k in ("numpy", "scipy", "h5py", "GPy", "emukit")
             if prov.get(k)))
 
-    lines += ["", "Checks"]
-    for c in checks:
-        lines.append(f"  [{c.status:4s}] {c.name:22s} {c.detail}")
-
-    n_fail = sum(1 for c in checks if c.status == "FAIL")
-    n_skip = sum(1 for c in checks if c.status == "SKIP")
-    summary = f"{len(checks) - n_fail - n_skip} passed, {n_fail} failed, {n_skip} skipped"
-    lines += ["", summary]
-    return "\n".join(lines)
+    return lines
 
 
 def main(argv=None) -> int:
@@ -662,9 +699,14 @@ def main(argv=None) -> int:
             try:
                 have_lyaemu = _import_gpwrap() is not None
             except ModuleNotFoundError as exc:
-                print(f"cannot emit predictions: lyaemu import failed ({exc}). "
-                      f"Install requirements.txt (matplotlib in particular), or "
-                      f"pass --no-predictions --force.", file=sys.stderr)
+                print(f"cannot emit predictions: "
+                      f"{_missing_dependency_detail(exc)} Or pass "
+                      f"--no-predictions --force.", file=sys.stderr)
+                return 2
+            except Exception as exc:
+                print(f"cannot emit predictions: "
+                      f"{_broken_environment_detail(exc)} Or pass "
+                      f"--no-predictions --force.", file=sys.stderr)
                 return 2
             if not have_lyaemu:
                 print("cannot emit predictions: lyaemu is not importable. Put an "

@@ -238,7 +238,7 @@ def test_trained_gps_of_uncut_width_are_rejected(tmp_path, monkeypatch):
 @needs_uncut
 def test_uncut_ar1_hyperparameters_are_rejected(tmp_path):
     """The extension-less zbin<z> files carry the AR1 hyperparameters. Swapping
-    in the uncut ones changes the high-fidelity P1D by about 2.5 per cent while
+    in the uncut ones changes the high-fidelity P1D by about 2.5 percent while
     every shape stays correct, so only the content check can catch it."""
     base = tmp_path / "swapped"
     shutil.copytree(REPO, base, ignore=shutil.ignore_patterns(".git", "__pycache__"))

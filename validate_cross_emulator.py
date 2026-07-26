@@ -8,7 +8,7 @@ design as this one, but to a flux measurement truncated at a lower k_max: its
 102 k-bins are an exact prefix of our 172, same spacing and same values, simply
 stopping at 5.34 rather than 9.006 h/Mpc. The comparison therefore probes the
 independent refit at the wider k_max, not suite-to-suite stability. Agreement at
-the per-cent level over the eBOSS k range confirms that the emulator is stable
+the percent level over the eBOSS k range confirms that the emulator is stable
 across the update.
 
 We compare over the eBOSS k range (k = 0.001 to 0.0195 s/km) that the
@@ -16,7 +16,7 @@ measurement covers, read from emulator_params.json, and over all shared
 redshifts. The largest mode (the lowest-k bin) is reported separately. Both
 emulators describe the same simulations, so a difference there is refit scatter
 rather than a difference in the underlying physics, and it sits at the level of
-that mode's cosmic variance, about 2 per cent (Fernandez et al. 2024, JCAP 07
+that mode's cosmic variance, about 2 percent (Fernandez et al. 2024, JCAP 07
 (2024) 029), which is the floor below which a difference at that mode carries no
 physical meaning. The pass/fail gate is therefore applied away from the largest
 mode.
@@ -58,7 +58,7 @@ PREVIOUS_NK = 102
 #: The two emulators are fitted to the same PRIYA suite, so this gap is not
 #: suite-to-suite scatter: it comes from the independent AR1 refit (ten
 #: optimiser restarts with no fixed seed) and from the different k-binning.
-#: A per-cent-level allowance covers both. Applied away from the largest mode.
+#: A percent-level allowance covers both. Applied away from the largest mode.
 DEFAULT_TOL = 0.02
 
 

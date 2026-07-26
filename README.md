@@ -4,15 +4,15 @@ This repository holds the trained multi-fidelity Gaussian-process emulator from
 the PRIYA KODIAQ-SQUAD analysis (Ho et al. 2026, JCAP 07 (2026) 094,
 arXiv:2509.18271).
 
-The repository *is* a basedir, so we clone it and use the clone root directly,
-with no assembly step. A nearly identical emulator is published elsewhere, and
+The repository *is* a basedir, and we use the clone root directly, with no
+assembly step. A nearly identical emulator is published elsewhere, and
 we must not substitute it: see [Why the cut k range](#why-the-cut-k-range).
 
 ## Quickstart
 
 Use **Python 3.11 or 3.12**. We verified this basedir on both, and the fiducial
 P1D reproduces bit-for-bit across the two. Do not use 3.13 or later: neither
-`numpy 1.26.4` nor `GPy 1.13.2` publishes wheels for it, so the pins cannot be
+`numpy 1.26.4` nor `GPy 1.13.2` publishes wheels for it, and the pins cannot be
 installed at all.
 
 ```bash
@@ -46,9 +46,9 @@ python verify_basedir.py --no-predictions # the subset that does not need lyaemu
 ```
 
 The script exits non-zero when a check fails, and prints the grid, the design
-and the trained-GP shapes, so it doubles as the summary of what this basedir
-contains. It reads those numbers from the files themselves rather than from
-`reference.json`, and the values it compares against are hard-coded in the
+and the trained-GP shapes, and it doubles as the summary of what this
+basedir contains. It reads those numbers from the files themselves rather than
+from `reference.json`, and the values it compares against are hard-coded in the
 script, because `reference.json` is part of what we are checking.
 
 ## Contents
@@ -64,21 +64,22 @@ script, because `reference.json` is part of what we are checking.
 | `res_corr/resolution_correction.h5` | 1 | 16.3 kB | Resolution-correction table, 15 redshifts x 59 k-bins |
 | `res_corr/resolution_correction.txt` | 1 | 22.1 kB | The same table as plain text |
 
-32 data files, 52.59 MB in total. The largest single file is 21.5 MB, so Git LFS
-is not required, and a clone transfers about 24 MiB once packed.
+32 data files, 52.59 MB in total. The largest single file is 21.5 MB. Git LFS is
+not required, and a clone transfers about 24 MiB once packed.
 
-The two kinds of file in `trained_mf/` are both needed, and a reader debugging a
-load failure should know which is which. The extension-less `zbin<z>` files hold
-the AR1 hyperparameters that the high-fidelity path loads, and are the files
-that differ between the cut and the uncut emulator. The `zbin<z>.json` files
-hold the single-fidelity GP that the low-fidelity path loads. When either is
+The two kinds of file in `trained_mf/` are both needed, and if you are debugging
+a load failure you should know which is which. The extension-less `zbin<z>`
+files hold the AR1 hyperparameters that the high-fidelity path loads, and are
+the files that differ between the cut and the uncut emulator. The
+`zbin<z>.json` files hold the single-fidelity GP that the low-fidelity path
+loads. When either is
 missing, `lyaemu` retrains on load and writes the result back into
 `trained_mf/`, which does not reproduce the published values.
 
 The emulator spans 13 redshift bins from z = 2.2 to z = 4.6 in steps of 0.2. We
-ship all 13, so that a reader can change the redshift without rebuilding the
-basedir. The bins are loaded as a contiguous range, so a partial set is not an
-option.
+ship all 13, so that you can change the redshift without rebuilding the basedir.
+The bins are loaded as a contiguous range, although this does mean a partial set
+is not an option.
 
 The design carries ten columns. Nine of them are the physics parameters named in
 `emulator_params.json` (`ns`, `Ap`, `herei`, `heref`, `alphaq`, `hub`,
@@ -89,8 +90,9 @@ optical-depth scaling, which upstream does not name.
 power from an L15n512 box to an L15n384 box, tabulated over 15 redshifts and 59
 k-bins. The KODIAQ-SQUAD analysis multiplies the emulated P1D by this factor to
 correct the residual resolution convergence of the training boxes. We ship it so
-that the basedir is a complete record, although `lyaemu` loads its own copy from
-the package rather than from here, so the table is not on the emulator load path.
+that the basedir is a complete record. `lyaemu` loads its own copy from the
+package rather than from here, however, so the table is not on the emulator load
+path.
 
 ## Provenance
 
@@ -112,7 +114,7 @@ although two of them are published there under a different name:
 The trained GPs are the reason this repository exists. We fit ours to the cut
 flux vectors, so they have `Y = (600, 172)`, while the GPs published in
 `InferenceLyaData` are fitted to the uncut vectors and have `Y = (600, 329)`.
-Shipping ours means that a reader can reproduce the published numbers without
+Shipping ours means that you can reproduce the published numbers without
 retraining, which matters because the multi-fidelity AR1 fit uses ten optimiser
 restarts with no fixed seed and is not reproducible.
 
@@ -121,7 +123,7 @@ We stripped the basedir from the internal run directory
 temperature-emulator files, the seed-convergence file, the auxiliary `kims_`
 subdirectories, and the alternative HDF5 variants that the forecast never reads.
 The two `emulator_params.json` files are carried over verbatim from the previous
-emulator version, so their `kf`, `maxk`, and `basedir` fields describe that
+emulator version, and their `kf`, `maxk`, and `basedir` fields describe that
 version rather than the shipped flux vectors; only `param_names`,
 `param_limits`, and `sample_params` bear on this basedir, and the k-binning
 comes from the HDF5 files. We preserve them unedited so that the files stay
@@ -143,49 +145,49 @@ In Ho et al. (2026) we use the multi-fidelity emulator only up to k = 0.065 s/km
 which is about 7.8 h/Mpc at z = 3.6. Beyond that scale the residual
 resolution-convergence error of the simulations exceeds the KODIAQ-SQUAD
 statistical uncertainty (the square root of the diagonal of its data
-covariance), so we do not use the emulator there. The resolution-convergence
+covariance), and we do not use the emulator there. The resolution-convergence
 correction is tabulated in `res_corr/resolution_correction.h5`.
 
 An emulator built from the uncut vectors loads without any warning but is a
 different emulator: at z = 3.6, over k = 0.001 to 0.04 s/km, its high-fidelity
-P1D differs from this one by 2.5 per cent in the median. `verify_basedir.py`
+P1D differs from this one by 2.5 percent in the median. `verify_basedir.py`
 therefore tests the k-binning directly, and names the uncut variant when it
 finds 329 bins. A basedir pointed at `InferenceLyaData/Emulator_Files_KS` is
-exactly this mistake, so we point `GP_BASEDIR` at a clone of this repository and
-never at that directory.
+exactly this mistake. We therefore point `GP_BASEDIR` at a clone of this
+repository and never at that directory.
 
 ## Consistency with the earlier PRIYA-trained emulator
 
 We compare against [`mafern/InferenceLyaData`](https://github.com/mafern/InferenceLyaData),
 the earlier PRIYA-trained emulator. It is fitted to the **same** underlying
-PRIYA suite and the same design as this one — its `emulator_params.json` is
+PRIYA suite and the same design as this one: its `emulator_params.json` is
 byte-identical to ours, its design matrix is identical (60 low-fidelity and 3
 high-fidelity simulations, each at 10 mean-flux rescalings), and over the k-bins
 the two releases share, their flux vectors agree to one part in 10^7. What
-differs is that it was trained at a lower k_max: 102 k-bins reaching
-5.34 h/Mpc, against 172 reaching 9.006 h/Mpc here, and it is queried on the
+differs is that it was trained at a lower k_max, with 102 k-bins reaching
+5.34 h/Mpc against 172 reaching 9.006 h/Mpc here, and it is queried on the
 35-bin eBOSS grid in s/km.
 
-Its 102 bins are an exact prefix of our 172 — same spacing, same values, simply
-stopping earlier — so the difference between the two is a lower k_max, not a
-regridding.
+Its 102 bins are an exact prefix of our 172, with the same spacing and the same
+values, simply stopping earlier, and the difference between the two is therefore
+a lower k_max rather than a regridding.
 
-This comparison therefore probes the **refit at the wider k_max**, not
+This comparison probes the **refit at the wider k_max** rather than
 suite-to-suite stability, and it is not a check that two independent emulators
 agree. What it does establish is that extending the training range did not
-disturb the predictions over the range the earlier emulator already covered —
-worth confirming, because the AR1 fit uses ten optimiser restarts with no fixed
-seed and so is not reproducible.
+disturb the predictions over the range the earlier emulator already covered,
+which is worth confirming because the AR1 fit uses ten optimiser restarts with
+no fixed seed and is not reproducible.
 
 We predict the fiducial high-fidelity P1D from both over the eBOSS k range
 (k = 0.001 to 0.0195 s/km, the range the measurement covers) at all 13
-redshifts. Away from the largest mode the two agree to about 1.5 per cent at
-every redshift (worst 1.5 per cent at z = 4.4), and to about one per cent or
+redshifts. Away from the largest mode the two agree to about 1.5 percent at
+every redshift (worst 1.5 percent at z = 4.4), and to about one percent or
 better in the median. At the largest mode, the lowest-k bin at k = 0.001 s/km,
-the difference reaches 2 per cent at z = 2.8. Since both emulators describe the
-same simulations, that difference is refit scatter rather than a difference in
-the underlying physics; we do not gate on it, because it sits at the level of
-that mode's cosmic variance, of order 2 per cent (Fernandez et al. 2024,
+the difference reaches 2 percent at z = 2.8. Both emulators describe the same
+simulations, however, so that difference is refit scatter rather than a
+difference in the underlying physics, and we do not gate on it: it sits at the
+level of that mode's cosmic variance, of order 2 percent (Fernandez et al. 2024,
 JCAP 07 (2024) 029, [arXiv:2309.03943](https://arxiv.org/abs/2309.03943)),
 which is the floor below which a difference at that mode carries no physical
 meaning.
@@ -210,8 +212,8 @@ Clone it under a name of its own. The quickstart above already used the
 directory name `InferenceLyaData` for `jibanCat/InferenceLyaData`, and every
 candidate directory carries a byte-identical `emulator_params.json`, so that
 file cannot tell them apart. The script checks the k-binning instead and refuses
-anything that is not the earlier emulator's 102 bins — which catches the two
-mistakes that matter, pointing `--mafern` at this basedir (172 bins, so the
+anything that is not the earlier emulator's 102 bins, which catches the two
+mistakes that matter: pointing `--mafern` at this basedir (172 bins, where the
 comparison would be against itself) or at `Emulator_Files_KS` (329, the uncut
 variant).
 
@@ -228,7 +230,7 @@ only expected spread comes from the platform linear algebra.
 assembled from the uncut files and one whose AR1 hyperparameters have been
 swapped.
 
-## Licence
+## License
 
 Everything here is released under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). `LICENSE` is the

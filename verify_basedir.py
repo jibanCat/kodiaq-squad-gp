@@ -4,7 +4,7 @@
 We run several groups of checks: the file manifest, the k-binning, the trained
 GPs, the resolution-correction table, and a fiducial P1D. The grid check is the
 reason this script exists: an emulator assembled from the uncut flux vectors
-loads without complaint and predicts a P1D that differs at the per-cent level,
+loads without complaint and predicts a P1D that differs at the percent level,
 so we test the binning directly rather than trusting the file name. The
 prediction check reproduces a stored P1D from the trained GPs, and we skip it
 when lyaemu is not importable.

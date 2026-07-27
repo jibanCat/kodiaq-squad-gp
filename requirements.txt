@@ -1,0 +1,15 @@
+# Versions this basedir was verified against, on Python 3.11 and 3.12. Not 3.13
+# or later: numpy 1.26.4 and GPy 1.13.2 publish no wheels for it.
+# GPy pins numpy<2 itself; scipy<=1.12 is required by GPy 1.13.
+numpy==1.26.4
+scipy==1.12.0
+GPy==1.13.2
+emukit==0.5.1
+h5py==3.16.0
+# matplotlib is an unavoidable top-level import of lyaemu.gpemulator, and pandas
+# one of lyaemu.lyman_data; the prediction check loads both through lyaemu, and
+# without either verify_basedir.py cannot import the emulator at all.
+matplotlib
+pandas
+# pytest is only needed to run the test suite, not to use the basedir.
+pytest>=7.0
